@@ -55,7 +55,10 @@ func (m *spiderMaster) run(start string) error {
 		//get processed results
 		select {
 		case result := <-results:
-			if result.links != nil {
+			if result.error != nil {
+				m.report.addError("Error fetching " + result.parent.String())
+				m.report.addError(result.error.Error() + "\n")
+			} else if result.links != nil {
 				for i := range result.links {
 					m.addToQueue(result.links[i], result.parent)
 				}
@@ -74,7 +77,8 @@ func (m *spiderMaster) relativeToGlobal(link string, parent *url.URL) *url.URL {
 	info, err := url.Parse(link)
 
 	if err != nil {
-		m.report.addError("[E] Invalid URL, " + link)
+		m.report.addError("Invalid URL, " + link)
+		return nil
 	}
 
 	if parent == nil {
@@ -86,10 +90,9 @@ func (m *spiderMaster) relativeToGlobal(link string, parent *url.URL) *url.URL {
 		//relative link
 		if strings.HasPrefix(info.Path, ".") {
 			info.Path = path.Base(parent.Path) + "/" + info.Path
-		} else {
-			info.Host = parent.Host
-			info.Scheme = parent.Scheme
 		}
+		info.Host = parent.Host
+		info.Scheme = parent.Scheme
 	}
 
 	if info.Scheme == "" {
@@ -97,19 +100,24 @@ func (m *spiderMaster) relativeToGlobal(link string, parent *url.URL) *url.URL {
 	}
 
 	if info.Host != parent.Host {
-		m.report.addInfo(fmt.Sprintf(
-			"[I] External link, from %s to %s",
-			parent.String(),
-			link))
+		m.report.addExternal(link)
 		return nil
 	}
 
 	if info.Scheme != parent.Scheme {
 		m.report.addError(fmt.Sprintf(
-			"[E] Scheme changed, from %s to %s",
-			parent.String(),
+			"Scheme changed, from %s to %s",
+			parent,
 			link))
 		return nil
+	}
+
+	if strings.HasSuffix(info.Path, " ") {
+		m.report.addWarning(fmt.Sprintf(
+			"Whitespace after link, %s at %s",
+			info,
+			parent,
+		))
 	}
 
 	return info
@@ -121,8 +129,7 @@ func (m *spiderMaster) addToQueue(data string, parent *url.URL) {
 		return
 	}
 
-	normalized := purell.MustNormalizeURLString(url.String(), purell.FlagsUnsafeGreedy)
-
+	normalized := purell.MustNormalizeURLString(url.String(), purell.FlagsUsuallySafeNonGreedy|purell.FlagRemoveDirectoryIndex|purell.FlagRemoveFragment|purell.FlagRemoveDuplicateSlashes|purell.FlagSortQuery)
 	if m.queued[normalized] {
 		return
 	}
@@ -130,7 +137,6 @@ func (m *spiderMaster) addToQueue(data string, parent *url.URL) {
 	m.queue = append(m.queue, url)
 	m.writePoint++
 	m.queued[normalized] = true
-	//log.Printf("%d %s", m.writePoint, normalized)
 }
 
 func (m *spiderMaster) getFromQueue() *url.URL {

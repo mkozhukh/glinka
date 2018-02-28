@@ -1,11 +1,15 @@
 package main
 
-import "log"
+import (
+	"fmt"
+	"github.com/fatih/color"
+)
 
 type spiderReport struct {
-	warnings []string
-	infos    []string
-	errors   []string
+	externals map[string]int
+	warnings  []string
+	infos     []string
+	errors    []string
 }
 
 func newSpiderReport() *spiderReport {
@@ -13,6 +17,8 @@ func newSpiderReport() *spiderReport {
 	rep.infos = []string{}
 	rep.warnings = []string{}
 	rep.errors = []string{}
+	rep.externals = make(map[string]int)
+
 	return &rep
 }
 
@@ -24,23 +30,26 @@ func (r *spiderReport) addWarning(s string) {
 	r.warnings = append(r.warnings, s)
 }
 
-func (r *spiderReport) addInfo(s string) {
-	r.infos = append(r.infos, s)
+func (r *spiderReport) addExternal(s string) {
+	r.externals[s] = r.externals[s] + 1
 }
 
 func (r *spiderReport) toString() {
-	log.Println("Errors:")
-	for i := range r.errors {
-		log.Println(r.errors[i])
+	if len(r.errors) > 0 {
+		for i := range r.errors {
+			color.Red(r.errors[i] + "\n")
+		}
+	}
+	if len(r.warnings) > 0 {
+		for i := range r.warnings {
+			color.Yellow(r.warnings[i] + "\n")
+		}
 	}
 
-	log.Println("Warnings:")
-	for i := range r.warnings {
-		log.Println(r.warnings[i])
-	}
-
-	log.Println("Info:")
-	for i := range r.infos {
-		log.Println(r.infos[i])
+	if len(r.externals) > 0 {
+		color.Cyan("External links:\n")
+		for link, count := range r.externals {
+			fmt.Printf("[%d] - %s\n", count, link)
+		}
 	}
 }
