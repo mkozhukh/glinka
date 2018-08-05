@@ -1,29 +1,60 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"os"
 
 	"gopkg.in/urfave/cli.v1"
 )
 
+type appConfig struct {
+	source  string
+	target  string
+	threads uint
+}
+
 func main() {
 	app := cli.NewApp()
 	app.Name = "glinka"
 
-	app.Version = "0.1.0"
-	app.Usage = "links checker"
-	app.ArgsUsage = "domain"
-	app.Action = func(c *cli.Context) error {
-		domain := c.Args().Get(0)
-		if domain == "" {
-			return cli.NewExitError("Domain argument is mandatory. Try to use `glinka http://some.com`", 1)
-		}
-		s := spiderMaster{domain: domain}
-		e := s.run(domain)
+	config := appConfig{}
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:        "source, s",
+			Usage:       "load links structure from the `FILE`",
+			Destination: &config.source,
+		},
+		cli.StringFlag{
+			Name:        "target, t",
+			Usage:       "save links structure to the `FILE`",
+			Destination: &config.target,
+		},
+	}
 
-		if e != nil {
-			return cli.NewExitError(e.Error(), 1)
+	app.Commands = []cli.Command{
+		{
+			Name:  "stats",
+			Usage: "show links stats",
+			Action: func(c *cli.Context) error {
+				_, err := getData(c, &config)
+				if err != nil {
+					return cli.NewExitError(err.Error(), 1)
+				}
+
+				return nil
+			},
+		},
+	}
+
+	app.Version = "0.2.0"
+	app.Usage = "links analyzer"
+	app.ArgsUsage = "domain"
+
+	app.Action = func(c *cli.Context) error {
+		_, err := getData(c, &config)
+		if err != nil {
+			return cli.NewExitError(err.Error(), 1)
 		}
 
 		return nil
@@ -33,4 +64,30 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func getData(c *cli.Context, config *appConfig) (*LinksStore, error) {
+	var data *LinksStore
+	if config.source == "" {
+		domain := c.Args().Get(0)
+		if domain == "" {
+			return nil, errors.New("Domain argument is mandatory. Try to use `glinka http://some.com`")
+		}
+
+		s := spiderMaster{domain: domain}
+		data = s.run(domain)
+	} else {
+		data = NewLinksStore()
+		if err := data.load(config.source); err != nil {
+			return data, err
+		}
+	}
+
+	if config.target != "" {
+		if err := data.save(config.target); err != nil {
+			return data, err
+		}
+	}
+
+	return data, nil
 }
