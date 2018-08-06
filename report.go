@@ -2,55 +2,79 @@ package main
 
 import (
 	"fmt"
+	"net/url"
+	"sort"
 
 	"github.com/fatih/color"
 )
 
-type spiderReport struct {
-	externals map[string]int
-	warnings  []string
-	infos     []string
-	errors    []string
-}
+func reportStats(data *LinksStore) string {
+	text := "\n"
 
-func newSpiderReport() *spiderReport {
-	rep := spiderReport{}
-	rep.infos = []string{}
-	rep.warnings = []string{}
-	rep.errors = []string{}
-	rep.externals = make(map[string]int)
-
-	return &rep
-}
-
-func (r *spiderReport) addError(s string) {
-	r.errors = append(r.errors, s)
-}
-
-func (r *spiderReport) addWarning(s string) {
-	r.warnings = append(r.warnings, s)
-}
-
-func (r *spiderReport) addExternal(s string) {
-	r.externals[s] = r.externals[s] + 1
-}
-
-func (r *spiderReport) toString() {
-	if len(r.errors) > 0 {
-		for i := range r.errors {
-			color.Red(r.errors[i] + "\n")
-		}
+	type kv struct {
+		Key   string
+		Value int
 	}
-	if len(r.warnings) > 0 {
-		for i := range r.warnings {
-			color.Yellow(r.warnings[i] + "\n")
+	var total, linktotal, errors, mixed, external, binary int
+	var errorsText string
+
+	domains := make(map[string]int)
+	files := []kv{}
+
+	for _, link := range data.Records {
+		switch link.Status {
+		case StatusBinary:
+			binary++
+			files = append(files, kv{link.URL, link.Count})
+		case StatusExternal:
+			external++
+			linkURL, _ := url.Parse(link.URL)
+			domains[linkURL.Host] += link.Count
+		case StatusMixedContent:
+			mixed++
+		case StatusError:
+			errors++
+			errorsText += link.Error + "\n'"
+		default:
+			total++
+			if link.Links != nil {
+				linktotal += len(link.Links)
+			}
 		}
 	}
 
-	if len(r.externals) > 0 {
-		color.Cyan("External links:\n")
-		for link, count := range r.externals {
-			fmt.Printf("[%d] - %s\n", count, link)
+	text += fmt.Sprintf("%d errors in %d pages ( %d links )\n", errors, total, linktotal)
+	text += fmt.Sprintf("there were %d file links and %d external links\n", binary, external)
+
+	if external != 0 {
+		text += "\nExternal domains\n"
+
+		var ss []kv
+		for k, v := range domains {
+			ss = append(ss, kv{k, v})
+		}
+		sort.Slice(ss, func(i, j int) bool {
+			return ss[i].Value > ss[j].Value
+		})
+
+		for _, kv := range ss {
+			text += fmt.Sprintf("%4d : %s\n", kv.Value, kv.Key)
 		}
 	}
+
+	if binary != 0 {
+		text += "\nLinked files\n"
+		sort.Slice(files, func(i, j int) bool {
+			return files[i].Value > files[j].Value
+		})
+
+		for _, file := range files {
+			text += fmt.Sprintf(" - %4d : %s", file.Value, file.Key)
+		}
+	}
+
+	if errors != 0 {
+		text += color.RedString(errorsText)
+	}
+	return text
 }

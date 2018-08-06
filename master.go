@@ -55,8 +55,15 @@ func (m *spiderMaster) run(start string) *LinksStore {
 			m.store.Records[result.URL] = *result
 			if result.Status == StatusOK {
 				for _, link := range result.Links {
+					rec, ok := m.store.Records[link.Global]
+					if ok {
+						rec.Count++
+					}
+
 					if link.Status == StatusOK {
 						m.addToQueue(link)
+					} else if ok == false {
+						m.store.Records[link.Global] = LinkRecord{URL: link.Raw, Status: link.Status, Count: 1}
 					}
 				}
 			}

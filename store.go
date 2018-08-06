@@ -24,6 +24,7 @@ func NewLinksStore() *LinksStore {
 
 type LinkRecord struct {
 	URL    string
+	Count  int
 	Status LinkStatus
 	Links  []Link
 	Error  string
@@ -49,7 +50,7 @@ func (s LinksStore) save(file string) error {
 }
 
 func (s LinksStore) load(file string) error {
-	data, err := ioutil.ReadFile("/tmp/dat")
+	data, err := ioutil.ReadFile(file)
 	if err != nil {
 		return err
 	}

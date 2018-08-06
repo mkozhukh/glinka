@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"os"
 
@@ -37,11 +38,13 @@ func main() {
 			Name:  "stats",
 			Usage: "show links stats",
 			Action: func(c *cli.Context) error {
-				_, err := getData(c, &config)
+				data, err := getData(c, &config)
 				if err != nil {
 					return cli.NewExitError(err.Error(), 1)
 				}
 
+				str := reportStats(data)
+				fmt.Print(str)
 				return nil
 			},
 		},

@@ -109,12 +109,8 @@ func (w *spiderWorker) parseLink(raw string, parent *url.URL) Link {
 
 		if info.Host != parent.Host {
 			link.Status = StatusExternal
-			return link
-		}
-
-		if info.Scheme != parent.Scheme {
+		} else if info.Scheme != parent.Scheme {
 			link.Status = StatusMixedContent
-			return link
 		}
 	}
 	// if strings.HasSuffix(info.Path, " ") {
