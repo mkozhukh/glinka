@@ -13,12 +13,12 @@ type Link struct {
 }
 
 type LinksStore struct {
-	Records map[string]LinkRecord
+	Records map[string]*LinkRecord
 }
 
 func NewLinksStore() *LinksStore {
 	store := LinksStore{}
-	store.Records = make(map[string]LinkRecord)
+	store.Records = make(map[string]*LinkRecord)
 	return &store
 }
 
@@ -26,14 +26,15 @@ type LinkRecord struct {
 	URL    string
 	Count  int
 	Status LinkStatus
-	Links  []Link
+	Links  []string
 	Error  string
 }
 
 type LinkStatus int
 
 const (
-	StatusOK LinkStatus = iota
+	StatusUnknown LinkStatus = iota
+	StatusOK
 	StatusError
 	StatusBinary
 	StatusExternal

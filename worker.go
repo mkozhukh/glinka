@@ -12,47 +12,60 @@ import (
 )
 
 type spiderWorker struct {
+	client http.Client
 }
 
-func (w *spiderWorker) start(tasks chan string, result chan *LinkRecord) {
+type workerResult struct {
+	Links  []Link
+	Error  string
+	Status LinkStatus
+	URL    string
+}
+
+func (w *spiderWorker) start(tasks chan string, result chan *workerResult) {
+
+	timeout := time.Duration(30 * time.Second)
+	w.client = http.Client{
+		Timeout: timeout,
+	}
+
 	for {
 		select {
 		case url := <-tasks:
-			links, errorText, status := w.get(url)
-			res := LinkRecord{
-				URL:    url,
-				Links:  links,
-				Status: status,
-				Error:  errorText,
-			}
-			result <- &res
+			res := w.get(url)
+			res.URL = url
+			result <- res
+
 			time.Sleep(time.Millisecond * 500)
 		}
 	}
 }
 
-func (w *spiderWorker) get(urlString string) ([]Link, string, LinkStatus) {
-	head, err := http.Head(urlString)
+func (w *spiderWorker) get(urlString string) *workerResult {
+	head, err := w.client.Head(urlString)
 	if err != nil {
-		return nil, err.Error(), StatusError
+		return &workerResult{Error: err.Error(), Status: StatusError}
 	}
 
 	str := head.Header.Get("Content-Type")
 	if !strings.HasPrefix(str, "text/html") && !strings.HasPrefix(str, "text/plain") {
-		return nil, "", StatusBinary
+		return &workerResult{Status: StatusBinary}
 	}
 
-	resp, err := http.Get(urlString)
+	resp, err := w.client.Get(urlString)
 	if err != nil {
-		return nil, err.Error(), StatusError
+		return &workerResult{Error: err.Error(), Status: StatusError}
+	}
+	if resp.StatusCode >= 400 {
+		return &workerResult{Error: resp.Status, Status: StatusError}
 	}
 
 	parent, err := url.Parse(urlString)
 	if err != nil {
-		return nil, err.Error(), StatusError
+		return &workerResult{Error: err.Error(), Status: StatusError}
 	}
 
-	return w.parseHTML(resp, parent), "", StatusOK
+	return &workerResult{Links: w.parseHTML(resp, parent), Status: StatusOK}
 }
 
 func (w *spiderWorker) parseHTML(resp *http.Response, parent *url.URL) []Link {
@@ -121,6 +134,6 @@ func (w *spiderWorker) parseLink(raw string, parent *url.URL) Link {
 	// 	))
 	// }
 
-	link.Global = purell.MustNormalizeURLString(info.String(), purell.FlagsUsuallySafeNonGreedy|purell.FlagRemoveDirectoryIndex|purell.FlagRemoveFragment|purell.FlagRemoveDuplicateSlashes|purell.FlagSortQuery)
+	link.Global = purell.MustNormalizeURLString(info.String(), purell.FlagsUsuallySafeGreedy|purell.FlagRemoveDirectoryIndex|purell.FlagRemoveFragment|purell.FlagRemoveDuplicateSlashes|purell.FlagSortQuery)
 	return link
 }

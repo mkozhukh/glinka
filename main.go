@@ -9,27 +9,30 @@ import (
 	"gopkg.in/urfave/cli.v1"
 )
 
-type appConfig struct {
-	source  string
-	target  string
-	threads uint
-}
-
 func main() {
 	app := cli.NewApp()
 	app.Name = "glinka"
 
-	config := appConfig{}
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
-			Name:        "source, s",
-			Usage:       "load links structure from the `FILE`",
-			Destination: &config.source,
+			Name:  "source, s",
+			Usage: "load links structure from the `FILE`",
 		},
 		cli.StringFlag{
-			Name:        "target, t",
-			Usage:       "save links structure to the `FILE`",
-			Destination: &config.target,
+			Name:  "target, t",
+			Usage: "save links structure to the `FILE`",
+		},
+		cli.StringFlag{
+			Name:  "verbose",
+			Usage: "enable verbose output",
+		},
+		cli.StringFlag{
+			Name:  "quiet",
+			Usage: "enable quiet output",
+		},
+		cli.StringFlag{
+			Name:  "threads",
+			Usage: "number of concurent requests",
 		},
 	}
 
@@ -38,12 +41,26 @@ func main() {
 			Name:  "stats",
 			Usage: "show links stats",
 			Action: func(c *cli.Context) error {
-				data, err := getData(c, &config)
+				data, err := getData(c)
 				if err != nil {
 					return cli.NewExitError(err.Error(), 1)
 				}
 
 				str := reportStats(data)
+				fmt.Print(str)
+				return nil
+			},
+		},
+		{
+			Name:  "errors",
+			Usage: "show errors",
+			Action: func(c *cli.Context) error {
+				data, err := getData(c)
+				if err != nil {
+					return cli.NewExitError(err.Error(), 1)
+				}
+
+				str := reportErrors(data)
 				fmt.Print(str)
 				return nil
 			},
@@ -55,7 +72,7 @@ func main() {
 	app.ArgsUsage = "domain"
 
 	app.Action = func(c *cli.Context) error {
-		_, err := getData(c, &config)
+		_, err := getData(c)
 		if err != nil {
 			return cli.NewExitError(err.Error(), 1)
 		}
@@ -69,25 +86,34 @@ func main() {
 	}
 }
 
-func getData(c *cli.Context, config *appConfig) (*LinksStore, error) {
+func getData(c *cli.Context) (*LinksStore, error) {
 	var data *LinksStore
-	if config.source == "" {
+	source := c.GlobalString("source")
+	target := c.GlobalString("target")
+
+	if source == "" {
 		domain := c.Args().Get(0)
 		if domain == "" {
 			return nil, errors.New("Domain argument is mandatory. Try to use `glinka http://some.com`")
 		}
 
-		s := spiderMaster{domain: domain}
+		threads := c.GlobalInt("threads")
+		if threads == 0 {
+			threads = 3
+		}
+		verbose := c.GlobalBool("verbose")
+		quiet := c.GlobalBool("quiet")
+		s := spiderMaster{domain: domain, threads: threads, verbose: verbose, quiet: quiet}
 		data = s.run(domain)
 	} else {
 		data = NewLinksStore()
-		if err := data.load(config.source); err != nil {
+		if err := data.load(source); err != nil {
 			return data, err
 		}
 	}
 
-	if config.target != "" {
-		if err := data.save(config.target); err != nil {
+	if target != "" {
+		if err := data.save(target); err != nil {
 			return data, err
 		}
 	}

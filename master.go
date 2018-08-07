@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	pb "gopkg.in/cheggaaa/pb.v1"
@@ -14,63 +15,76 @@ type spiderMaster struct {
 	writePoint uint
 	readPoint  uint
 	counter    uint
-	queued     map[string]bool
+
+	verbose bool
+	quiet   bool
+	threads int
 }
 
 func (m *spiderMaster) run(start string) *LinksStore {
 	m.queue = []string{}
-	m.queued = make(map[string]bool)
 	m.store = NewLinksStore()
 
 	m.readPoint = 0
 	m.writePoint = 0
 	m.counter = 0
 
-	threads := 3
-	tasks := make(chan string, threads)
-	results := make(chan *LinkRecord, threads)
+	tasks := make(chan string, m.threads)
+	results := make(chan *workerResult, m.threads)
 
-	nest := make([]spiderWorker, threads)
+	nest := make([]spiderWorker, m.threads)
 	for i := range nest {
 		go nest[i].start(tasks, results)
 	}
 
-	bar := pb.StartNew(1)
+	var bar *pb.ProgressBar
+	if !m.verbose && !m.quiet {
+		bar = pb.StartNew(1)
+	}
+	if m.verbose {
+		fmt.Printf("Starting %d threads, from %s\n", m.threads, start)
+	}
 	m.addToQueue(Link{Global: start, Raw: start, Status: StatusOK})
 
 	for {
 		if m.isDone() {
-			bar.Finish()
+			if !m.verbose && !m.quiet {
+				bar.Finish()
+			}
 			return m.store
 		}
 
 		// scheduler new job
 		if m.isQueue() && len(tasks) != cap(tasks) {
-			tasks <- m.getFromQueue()
+			url := m.getFromQueue()
+			if m.verbose {
+				fmt.Print("[start] " + url + "\n")
+			}
+			tasks <- url
 		}
 
 		//get processed results
 		select {
 		case result := <-results:
-			m.store.Records[result.URL] = *result
-			if result.Status == StatusOK {
-				for _, link := range result.Links {
-					rec, ok := m.store.Records[link.Global]
-					if ok {
-						rec.Count++
-					}
-
-					if link.Status == StatusOK {
-						m.addToQueue(link)
-					} else if ok == false {
-						m.store.Records[link.Global] = LinkRecord{URL: link.Raw, Status: link.Status, Count: 1}
-					}
+			if m.verbose {
+				fmt.Printf("[end] %s, status: %d, %s\n", result.URL, result.Status, result.Error)
+			}
+			rec := m.store.Records[result.URL]
+			rec.Status = result.Status
+			rec.Error = result.Error
+			if result.Status == StatusOK && len(result.Links) != 0 {
+				rec.Links = make([]string, len(result.Links))
+				for i := range result.Links {
+					m.addToQueue(result.Links[i])
+					rec.Links[i] = result.Links[i].Global
 				}
 			}
-			m.counter++
 
-			bar.Total = int64(m.writePoint)
-			bar.Increment()
+			m.counter++
+			if !m.verbose && !m.quiet {
+				bar.Total = int64(m.writePoint)
+				bar.Increment()
+			}
 		default:
 			time.Sleep(time.Millisecond * 100)
 		}
@@ -78,13 +92,25 @@ func (m *spiderMaster) run(start string) *LinksStore {
 }
 
 func (m *spiderMaster) addToQueue(url Link) {
-	if m.queued[url.Global] {
+	rec, ok := m.store.Records[url.Global]
+	if ok {
+		rec.Count++
 		return
 	}
 
-	m.queue = append(m.queue, url.Global)
-	m.writePoint++
-	m.queued[url.Global] = true
+	newrec := LinkRecord{URL: url.Global, Count: 1}
+	if url.Status == StatusOK {
+		newrec.Status = StatusUnknown
+		m.queue = append(m.queue, url.Global)
+		m.writePoint++
+	} else {
+		newrec.Status = url.Status
+	}
+
+	if m.verbose {
+		fmt.Printf("+ [%d] %s, %s\n", url.Status, url.Global, url.Raw)
+	}
+	m.store.Records[url.Global] = &newrec
 }
 
 func (m *spiderMaster) getFromQueue() string {

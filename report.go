@@ -4,9 +4,23 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strings"
 
 	"github.com/fatih/color"
 )
+
+func reportErrors(data *LinksStore) string {
+	var errorsText string
+
+	for _, link := range data.Records {
+		if link.Status == StatusError {
+			from := strings.Join(getParents(data, link.URL, 1), "; ")
+			errorsText += fmt.Sprintf("%3d %s\nfrom %s\n%s\n\n", link.Status, link.URL, from, link.Error)
+		}
+	}
+
+	return errorsText
+}
 
 func reportStats(data *LinksStore) string {
 	text := "\n"
@@ -16,10 +30,10 @@ func reportStats(data *LinksStore) string {
 		Value int
 	}
 	var total, linktotal, errors, mixed, external, binary int
-	var errorsText string
 
 	domains := make(map[string]int)
 	files := []kv{}
+	mixedPages := []string{}
 
 	for _, link := range data.Records {
 		switch link.Status {
@@ -32,9 +46,9 @@ func reportStats(data *LinksStore) string {
 			domains[linkURL.Host] += link.Count
 		case StatusMixedContent:
 			mixed++
+			mixedPages = append(mixedPages, link.URL)
 		case StatusError:
 			errors++
-			errorsText += link.Error + "\n'"
 		default:
 			total++
 			if link.Links != nil {
@@ -46,6 +60,13 @@ func reportStats(data *LinksStore) string {
 	text += fmt.Sprintf("%d errors in %d pages ( %d links )\n", errors, total, linktotal)
 	text += fmt.Sprintf("there were %d file links and %d external links\n", binary, external)
 
+	if mixed != 0 {
+		text += color.RedString("\nMixed content detected\n")
+		for i := range mixedPages {
+			text += " - " + mixedPages[i] + "\n"
+		}
+
+	}
 	if external != 0 {
 		text += "\nExternal domains\n"
 
@@ -57,7 +78,7 @@ func reportStats(data *LinksStore) string {
 			return ss[i].Value > ss[j].Value
 		})
 
-		for _, kv := range ss {
+		for _, kv := range ss[0:5] {
 			text += fmt.Sprintf("%4d : %s\n", kv.Value, kv.Key)
 		}
 	}
@@ -68,13 +89,10 @@ func reportStats(data *LinksStore) string {
 			return files[i].Value > files[j].Value
 		})
 
-		for _, file := range files {
-			text += fmt.Sprintf(" - %4d : %s", file.Value, file.Key)
+		for _, file := range files[0:5] {
+			text += fmt.Sprintf(" - %4d : %s\n", file.Value, file.Key)
 		}
 	}
 
-	if errors != 0 {
-		text += color.RedString(errorsText)
-	}
 	return text
 }
